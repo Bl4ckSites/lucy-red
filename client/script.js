@@ -1,16 +1,17 @@
 /**
- * DIG · Premium Gate (Frontend Debug Mode)
+ * DIG · Premium Gate (Frontend - Ajuste de Tempo Seguro)
  */
 (() => {
     'use strict';
 
-    const DEBUG_MODE = true; // <--- Mude para false quando terminar os testes
+    // Mude para false quando terminar todos os testes!
+    const DEBUG_MODE = true; 
 
     const CONFIG = Object.freeze({
         DURATION_SECONDS: 3,
         VALIDATE_ENDPOINT: '/api/validate',
         REQUEST_TIMEOUT_MS: 8000,
-        AUTO_REDIRECT_DELAY_MS: 300,
+        AUTO_REDIRECT_DELAY_MS: 1500,
     });
 
     const STATUS = Object.freeze({ PASS: 'PASS', WARNING: 'WARNING', BLOCK: 'BLOCK' });
@@ -58,11 +59,14 @@
     async function validateUser() {
         const browserData = collectBrowserMetrics();
         
+        // --- AQUI ESTÁ A FOLGA DE SEGURANÇA ---
+        // Mudamos de 1500ms para 200ms. 
+        // Bots: < 50ms. Celulares reais: > 250ms.
         if (!browserData.isMobile) log("BLOQUEIO FRONT: Não é mobile.");
         if (browserData.honeypotValue !== '') log("BLOQUEIO FRONT: Honeypot preenchido.");
-        if (browserData.elapsedTime < 1500) log("BLOQUEIO FRONT: Tempo muito curto (< 1.5s).");
+        if (browserData.elapsedTime < 200) log(`BLOQUEIO FRONT: Tempo muito curto (${browserData.elapsedTime}ms).`);
 
-        if (!browserData.isMobile || browserData.honeypotValue !== '' || browserData.elapsedTime < 1500) {
+        if (!browserData.isMobile || browserData.honeypotValue !== '' || browserData.elapsedTime < 200) {
             isValidationComplete = true;
             checkAndProceed('BLOCK');
             return;
@@ -83,7 +87,6 @@
 
             log(`Resposta recebida. Status HTTP: ${response.status}`);
 
-            // Se o backend der erro (403, 500), capturamos o texto exato do erro!
             if (!response.ok) {
                 const errorText = await response.text();
                 log("ERRO DO BACKEND (Response não-OK):", errorText);
@@ -106,7 +109,7 @@
             }
         } catch (error) {
             log("FALHA NO FETCH/CATCH:", error.message);
-            console.error(error); // Imprime o erro completo no console
+            console.error(error); 
             isValidationComplete = true;
             checkAndProceed('BLOCK');
         }
@@ -149,5 +152,7 @@
 
     if (dom.countdownDisplay) dom.countdownDisplay.textContent = CONFIG.DURATION_SECONDS;
     countdownInterval = setInterval(updateCountdown, 1000);
+    
+    // Delay de 100ms para o DOM carregar. Somado aos 200ms da validação, temos 300ms totais de margem.
     setTimeout(validateUser, 100); 
 })();
