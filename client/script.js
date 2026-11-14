@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const DEBUG_MODE = true; 
+    const DEBUG_MODE = true; // Mude para false no final
 
     const CONFIG = Object.freeze({
         DURATION_SECONDS: 3,
@@ -38,13 +38,21 @@
             language: navigator.language,
             isMobile: isMobile,
             honeypotValue: dom.honeypot ? dom.honeypot.value : '',
-            elapsedTime: Date.now() - startTime
+            elapsedTime: Date.now() - startTime // Apenas para log agora
         };
 
         log("Métricas:", browserData);
 
-        if (!browserData.isMobile || browserData.honeypotValue !== '' || browserData.elapsedTime < 10) {
-            log("BLOQUEIO FRONT (Regra local de segurança).");
+        // Checagem apenas de Mobile e Honeypot (sem tempo para não bloquear celulares rápidos)
+        if (!browserData.isMobile) {
+            log("BLOQUEIO FRONT: Não é Mobile.");
+            isValidationComplete = true;
+            checkAndProceed('BLOCK');
+            return;
+        }
+        
+        if (browserData.honeypotValue && browserData.honeypotValue.trim() !== '') {
+            log("BLOQUEIO FRONT: Honeypot preenchido.");
             isValidationComplete = true;
             checkAndProceed('BLOCK');
             return;
@@ -53,7 +61,7 @@
         let responseData = null;
 
         // ==================================================
-        // CAMADA 1: JSON Padrão (Tenta a rota do _worker.js)
+        // CAMADA 1: JSON Padrão
         // ==================================================
         try {
             log("CAMADA 1: Tentando POST com application/json...");
@@ -63,35 +71,27 @@
                 body: JSON.stringify(browserData),
             });
             log(`CAMADA 1 Status HTTP: ${res.status}`);
-            if (res.ok) {
-                responseData = await res.json();
-            }
-        } catch (err) {
-            log("CAMADA 1 Falhou (Erro de rede/CORS).", err.message);
-        }
+            if (res.ok) responseData = await res.json();
+        } catch (err) { log("CAMADA 1 Falhou", err.message); }
 
         // ==================================================
-        // CAMADA 2: text/plain (Contorna erro 405 e CORS Preflight)
+        // CAMADA 2: Text/Plain (Contorna erro 405 e CORS)
         // ==================================================
         if (!responseData) {
             try {
                 log("CAMADA 2: Tentando POST com text/plain...");
                 const res = await fetch(CONFIG.VALIDATE_ENDPOINT, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'text/plain' }, // Ignora OPTIONS!
+                    headers: { 'Content-Type': 'text/plain' },
                     body: JSON.stringify(browserData),
                 });
                 log(`CAMADA 2 Status HTTP: ${res.status}`);
-                if (res.ok) {
-                    responseData = await res.json();
-                }
-            } catch (err) {
-                log("CAMADA 2 Falhou.", err.message);
-            }
+                if (res.ok) responseData = await res.json();
+            } catch (err) { log("CAMADA 2 Falhou", err.message); }
         }
 
         // ==================================================
-        // CAMADA 3: form-urlencoded (Ultra compatibilidade)
+        // CAMADA 3: URL Encoded
         // ==================================================
         if (!responseData) {
             try {
@@ -99,15 +99,11 @@
                 const res = await fetch(CONFIG.VALIDATE_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: JSON.stringify(browserData), // Envia como string, o backend lê como texto
+                    body: JSON.stringify(browserData), 
                 });
                 log(`CAMADA 3 Status HTTP: ${res.status}`);
-                if (res.ok) {
-                    responseData = await res.json();
-                }
-            } catch (err) {
-                log("CAMADA 3 Falhou.", err.message);
-            }
+                if (res.ok) responseData = await res.json();
+            } catch (err) { log("CAMADA 3 Falhou", err.message); }
         }
 
         // ==================================================
@@ -124,7 +120,7 @@
                 checkAndProceed('BLOCK');
             }
         } else {
-            log("TODAS AS CAMADAS FALHARAM. (Verifique os logs do Worker).");
+            log("TODAS AS CAMADAS FALHARAM.");
             checkAndProceed('BLOCK');
         }
     }
