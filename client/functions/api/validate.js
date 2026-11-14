@@ -1,126 +1,165 @@
-// --- DADOS DE CONFIANÇA ---
-// 1. Database de Bots Conhecidos (Deve ser atualizado dinamicamente)
+/**
+ * DIG · Premium Gate API (Cloudflare Pages Function)
+ * Rota: /api/validate
+ * 
+ * Segurança: Mobile-Only, Honeypot, Time-Gate, Origin Check e CF Threat Score.
+ */
+
 const BOT_PATTERN_DB = {
-    'headless_chrome_default': 0.9, // Exemplo de padrão com alta probabilidade de bot
-    'selenium_bot': 0.85
+    'headless': 1.0,
+    'puppeteer': 1.0,
+    'selenium': 1.0,
+    'playwright': 1.0,
+    'python': 1.0,
+    'curl': 1.0,
+    'postman': 1.0,
+    'axios': 1.0,
+    'node-fetch': 1.0
 };
 
-// 2. Regras de Geolocalização/IP (Exemplo)
-const BLACKLISTED_RANGES = ['192.168.1.0/24', '10.0.0.0/8']; // IPs locais ou de teste
+export async function onRequestPost(context) {
+    const { request, env } = context;
 
-/**
- * Função principal que lida com todas as requisições.
- * @param {Request} request 
- * @returns {Promise<Response>}
- */
-async function handleRequest(request) {
-    const url = new URL(request.url);
+    // ==================================================
+    // CAMADA 1: PROTEÇÕES DE BORDA (Antes de ler o JSON)
+    // ==================================================
+    
+    // 1. Origem Restrita (Aceita apenas requisições do seu domínio ou preview)
+    const origin = request.headers.get("Origin") || request.headers.get("Referer") || "";
+    const isAllowedOrigin = origin.includes("tinkerfada.xyz") || origin.includes("lucy-red.pages.dev");
+    
+    if (!isAllowedOrigin) {
+        return blockResponse('Invalid Origin');
+    }
 
-    // ----------------------------------------------------
-    // 1. ROTA DE VALIDAÇÃO API
-    // ----------------------------------------------------
-    if (url.pathname === '/api/validate') {
-        try {
-            const body = await request.json();
+    // 2. Content-Type Obrigatório
+    if (!request.headers.get('Content-Type')?.includes('application/json')) {
+        return blockResponse('Invalid Content-Type');
+    }
 
-            // --- 1. CHECAGEM DE IP (Layer 1: Barreira Bruta) ---
-            const ipAddress = request.headers.get('CF-Connecting-IP') || 'Unknown';
-            if (isBlacklistedIP(ipAddress)) {
-                return new Response(JSON.stringify({ status: 'BLOCK', reason: "IP Blacklisted" }), { status: 403, headers: { 'Content-Type': 'application/json' } });
-            }
+    // 3. Limite de Tamanho do Payload (Evita ataques de sobrecarga)
+    const contentLength = request.headers.get('Content-Length');
+    if (contentLength && parseInt(contentLength) > 2048) {
+        return blockResponse('Payload Too Large');
+    }
 
-            // --- 2. CHECAGEM DE FINGERPRINT (Layer 2: Behavioral Analysis) ---
-            let score = 100; // Começa com pontuação máxima
+    try {
+        const body = await request.json();
+        const ipAddress = request.headers.get('CF-Connecting-IP') || 'Unknown';
+        
+        // 4. Cloudflare Threat Score (Inteligência de IP da CF)
+        const threatScore = request.cf?.threatScore || 0;
 
-            // Avaliação de cada métrica
-            score = score - (evaluateFingerprint(body, BOT_PATTERN_DB) * 30);
+        // ==================================================
+        // CAMADA 2: FINGERPRINT & SCORE
+        // ==================================================
+        let score = 100;
 
-            // Pontuação final (Normalização para 0-100)
-            const finalScore = Math.max(0, Math.min(100, score));
+        // --- REGRAS DE BLOQUEIO CRÍTICO (Zeram o Score Instantaneamente) ---
+        
+        // Se preencheu o Honeypot -> Bot (humanos não veem o campo)
+        if (body.honeypotValue !== '') score = 0;
+        
+        // Se não é mobile -> Bloqueio (Site estritamente Mobile-Only)
+        if (!body.isMobile) score = 0;
+        
+        // Se o tempo na página foi muito curto (< 1.5s) -> Bot rápido
+        if (body.elapsedTime < 1500) score = 0;
 
-            // --- 3. DECISÃO BASEADA NO SCORE (Modelo de Risco) ---
-            let decisionStatus;
-            if (finalScore >= 85) {
-                decisionStatus = 'PASS';
-            } else if (finalScore >= 50) {
-                decisionStatus = 'WARNING'; // Baixa confiança, requer plano B ou alerta
-            } else {
-                decisionStatus = 'BLOCK'; // Baixa pontuação, bloqueio firme
-            }
+        // IP em Blacklist (Locais ou inválidos)
+        if (isBlacklistedIP(ipAddress)) score = 0;
 
-            // --- 4. RETORNO PADRONIZADO ---
-            return new Response(JSON.stringify({ 
-                status: decisionStatus, 
-                score: finalScore.toFixed(2),
-                reason: decisionStatus === 'BLOCK' ? 'Alto Risco Detectado' : 'Validação OK'
-            }), { 
-                headers: { 'Content-Type': 'application/json' } 
-            });
+        // Threat Score do Cloudflare > 10 já tira 50 pontos
+        if (threatScore > 10) score -= 50;
+        
+        // --- ANÁLISE DE PADRÕES E MISMATCH ---
+        score -= (evaluateFingerprint(body) * 30);
 
-        } catch (e) {
-            console.error("Erro no processamento da validação:", e);
-            // Fallback de segurança: Se o servidor falhar, rejeita ou passa por segurança
-            return new Response(JSON.stringify({ status: 'BLOCK', reason: 'Server Error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+        const finalScore = Math.max(0, Math.min(100, score));
+
+        // ==================================================
+        // CAMADA 3: DECISÃO E ENTREGA DO LINK SEGURO
+        // ==================================================
+        let decisionStatus;
+        if (finalScore >= 85) {
+            decisionStatus = 'PASS';
+        } else if (finalScore >= 50) {
+            decisionStatus = 'WARNING';
+        } else {
+            decisionStatus = 'BLOCK';
         }
-    } 
-    // ----------------------------------------------------
-    // 2. ROTA DE SERVIÇO (Serve o HTML/Assets)
-    // ----------------------------------------------------
-    else {
-        // Neste ponto, o Worker serve o index.html ou roteia para um bucket de assets.
-        return new Response("Servidor de Arquivos Estáticos: Servindo index.html", { 
-            headers: { 'Content-Type': 'text/html' } 
+
+        // Pega o link das Variáveis de Ambiente (O link nunca fica exposto no código)
+        const secretLink = env.TELEGRAM_LINK;
+
+        if (!secretLink) {
+            console.error("ERRO CRÍTICO: Variável de ambiente TELEGRAM_LINK não configurada!");
+            return blockResponse('Server Configuration Error');
+        }
+
+        // Monta a resposta
+        const responseData = { 
+            status: decisionStatus, 
+            score: finalScore.toFixed(2),
+            reason: decisionStatus === 'BLOCK' ? 'High Risk' : 'Validation OK'
+        };
+
+        // SÓ ENTREGA O LINK SE FOR PASS OU WARNING (Nunca no BLOCK)
+        if (decisionStatus === 'PASS' || decisionStatus === 'WARNING') {
+            responseData.link = secretLink;
+        }
+
+        // Retorno seguro com cabeçalhos restritos
+        return new Response(JSON.stringify(responseData), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': isAllowedOrigin ? origin : '',
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+                'X-Content-Type-Options': 'nosniff'
+            }
         });
+
+    } catch (e) {
+        console.error("Erro no processamento:", e);
+        return blockResponse('Internal Server Error');
     }
 }
 
 // ==================================================
 // FUNÇÕES DE APOIO
 // ==================================================
+function blockResponse(reason) {
+    return new Response(JSON.stringify({ status: 'BLOCK', reason }), { 
+        status: 403, 
+        headers: { 'Content-Type': 'application/json' } 
+    });
+}
 
-/**
- * Checa se o IP pertence a um range blacklist.
- * (Nota: Em produção, você precisaria de uma biblioteca de CIDR)
- */
 function isBlacklistedIP(ip) {
-    // Implementação simplificada:
-    if (ip.startsWith('192.168.')) return true; 
+    if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip === 'Unknown') return true; 
     return false;
 }
 
-/**
- * Avalia o conjunto de dados do usuário contra os padrões conhecidos de bots.
- * @param {object} data - Os dados do frontend.
- * @param {object} db - Banco de dados de padrões.
- * @returns {number} - Peso de risco (quanto maior, maior o risco).
- */
-function evaluateFingerprint(data, db) {
+function evaluateFingerprint(data) {
     let riskWeight = 0;
+    const ua = data.userAgent ? data.userAgent.toLowerCase() : '';
 
-    // 1. Análise do User Agent (Matcher de String)
-    if (data.userAgent && db['headless_chrome_default']) {
-        const isHeadless = data.userAgent.includes('HeadlessChrome') || data.userAgent.includes('Puppeteer');
-        if (isHeadless) {
-            riskWeight += db['headless_chrome_default'];
+    // 1. Ferramentas de Automação Conhecidas
+    for (const [botPattern, weight] of Object.entries(BOT_PATTERN_DB)) {
+        if (ua.includes(botPattern)) {
+            riskWeight += weight;
         }
     }
 
-    // 2. Análise de Resolução vs. Conhecimento de Bots
-    if (data.screenResolution && /tiny|small/.test(data.screenResolution)) {
-        riskWeight += 0.1; // Penalidade leve por resolução não-padrão
+    // 2. Mismatch de Plataforma (Diz que é iPhone mas plataforma é Win32)
+    if (ua.includes('iphone') && data.platform?.toLowerCase().includes('win')) {
+        riskWeight += 1.0;
     }
 
-    // 3. Análise de Canvas (Aprofundamento)
-    if (data.canvasHash && db['canvas_match']) {
-        // Aqui você implementaria a comparação do hash enviado contra um hash esperado
-        // Se o hash for idêntico a um hash de bot conhecido -> alto peso
-        riskWeight += 0.2; 
+    // 3. Validação de Resolução Básica (Se não for formato WxH)
+    if (!/^\d+x\d+$/.test(data.screenResolution)) {
+        riskWeight += 0.5;
     }
 
     return riskWeight;
 }
-
-// Exportação padrão para Cloudflare Workers
-addEventListener('fetch', event => {
-    event.respondWith(handleRequest(event.request));
-});
