@@ -1,6 +1,3 @@
-/**
- * DIG · Premium Gate (Frontend - Blindagem 99%)
- */
 (() => {
     'use strict';
 
@@ -9,20 +6,18 @@
     const CONFIG = Object.freeze({
         DURATION_SECONDS: 3,
         VALIDATE_ENDPOINT: '/api/validate',
-        REQUEST_TIMEOUT_MS: 8000,
-        AUTO_REDIRECT_DELAY_MS: 1500,
     });
 
     const STATUS = Object.freeze({ PASS: 'PASS', WARNING: 'WARNING', BLOCK: 'BLOCK' });
     const byId = (id) => document.getElementById(id);
     
     const dom = {
-        loadingArea:       byId('loading-area'),
+        loadingArea: byId('loading-area'),
         accessibleContent: byId('accessible-content'),
-        countdownDisplay:  byId('countdown-display'),
-        loadingText:       byId('loading-text'),
-        accessButton:      byId('access-button'),
-        honeypot:          byId('honeypot'),
+        countdownDisplay: byId('countdown-display'),
+        loadingText: byId('loading-text'),
+        accessButton: byId('access-button'),
+        honeypot: byId('honeypot'),
     };
 
     let timeLeft = CONFIG.DURATION_SECONDS;
@@ -31,90 +26,110 @@
     const startTime = Date.now(); 
 
     function log(msg, data = null) {
-        if (DEBUG_MODE) {
-            console.log(`[DIG-DEBUG] ${msg}`, data ? data : '');
-        }
+        if (DEBUG_MODE) console.log(`[DIG-DEBUG] ${msg}`, data ? data : '');
     }
 
-    function collectBrowserMetrics() {
+    async function validateUser() {
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || ('ontouchstart' in window);
-        const elapsed = Date.now() - startTime;
-        
-        const data = {
+        const browserData = {
             userAgent: navigator.userAgent,
             screenResolution: `${screen.width}x${screen.height}`,
             platform: navigator.platform,
             language: navigator.language,
-            canvasHash: 'SIMULATED_CANVAS_HASH_XYZ123',
             isMobile: isMobile,
             honeypotValue: dom.honeypot ? dom.honeypot.value : '',
-            elapsedTime: elapsed
+            elapsedTime: Date.now() - startTime
         };
 
-        log("Métricas coletadas no Front:", data);
-        return data;
-    }
-
-    async function validateUser() {
-        const browserData = collectBrowserMetrics();
-        
-        // --- AQUI ESTÁ A CORREÇÃO CRÍTICA ---
-        // Abaixamos para 10ms. Isso só bloqueia scripts injetados que rodam antes da página renderizar.
-        // Qualquer celular real vai levar > 100ms.
-        if (!browserData.isMobile) log("BLOQUEIO FRONT: Não é mobile.");
-        if (browserData.honeypotValue !== '') log("BLOQUEIO FRONT: Honeypot preenchido.");
-        if (browserData.elapsedTime < 10) log(`BLOQUEIO FRONT: Tempo muito curto (${browserData.elapsedTime}ms).`);
+        log("Métricas:", browserData);
 
         if (!browserData.isMobile || browserData.honeypotValue !== '' || browserData.elapsedTime < 10) {
+            log("BLOQUEIO FRONT (Regra local de segurança).");
             isValidationComplete = true;
             checkAndProceed('BLOCK');
             return;
         }
 
-        try {
-            log(`Enviando fetch para ${CONFIG.VALIDATE_ENDPOINT}...`);
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
+        let responseData = null;
 
-            const response = await fetch(CONFIG.VALIDATE_ENDPOINT, {
+        // ==================================================
+        // CAMADA 1: JSON Padrão (Tenta a rota do _worker.js)
+        // ==================================================
+        try {
+            log("CAMADA 1: Tentando POST com application/json...");
+            const res = await fetch(CONFIG.VALIDATE_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(browserData),
-                signal: controller.signal,
             });
-            clearTimeout(timeoutId);
-
-            log(`Resposta recebida. Status HTTP: ${response.status}`);
-
-            // Se o backend der erro (403, 500), capturamos o texto exato!
-            if (!response.ok) {
-                const errorText = await response.text();
-                log("ERRO DO BACKEND (Response não-OK):", errorText);
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            log(`CAMADA 1 Status HTTP: ${res.status}`);
+            if (res.ok) {
+                responseData = await res.json();
             }
+        } catch (err) {
+            log("CAMADA 1 Falhou (Erro de rede/CORS).", err.message);
+        }
 
-            const data = await response.json();
-            log("JSON recebido do Worker:", data);
+        // ==================================================
+        // CAMADA 2: text/plain (Contorna erro 405 e CORS Preflight)
+        // ==================================================
+        if (!responseData) {
+            try {
+                log("CAMADA 2: Tentando POST com text/plain...");
+                const res = await fetch(CONFIG.VALIDATE_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' }, // Ignora OPTIONS!
+                    body: JSON.stringify(browserData),
+                });
+                log(`CAMADA 2 Status HTTP: ${res.status}`);
+                if (res.ok) {
+                    responseData = await res.json();
+                }
+            } catch (err) {
+                log("CAMADA 2 Falhou.", err.message);
+            }
+        }
 
-            if (data?.status === STATUS.PASS) {
-                isValidationComplete = true;
-                checkAndProceed('PASS', data.link); 
-            } else if (data?.status === STATUS.WARNING) {
-                isValidationComplete = true;
-                checkAndProceed('WARNING', data.link); 
+        // ==================================================
+        // CAMADA 3: form-urlencoded (Ultra compatibilidade)
+        // ==================================================
+        if (!responseData) {
+            try {
+                log("CAMADA 3: Tentando POST com x-www-form-urlencoded...");
+                const res = await fetch(CONFIG.VALIDATE_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: JSON.stringify(browserData), // Envia como string, o backend lê como texto
+                });
+                log(`CAMADA 3 Status HTTP: ${res.status}`);
+                if (res.ok) {
+                    responseData = await res.json();
+                }
+            } catch (err) {
+                log("CAMADA 3 Falhou.", err.message);
+            }
+        }
+
+        // ==================================================
+        // RESULTADO FINAL
+        // ==================================================
+        isValidationComplete = true;
+        
+        if (responseData) {
+            log("JSON recebido com sucesso:", responseData);
+            if (responseData.status === STATUS.PASS || responseData.status === STATUS.WARNING) {
+                checkAndProceed(responseData.status, responseData.link); 
             } else {
-                log(`Backend retornou BLOCK. Motivo: ${data.reason || 'Não especificado'}`);
-                isValidationComplete = true;
+                log(`Backend retornou BLOCK. Motivo: ${responseData.reason}`);
                 checkAndProceed('BLOCK');
             }
-        } catch (error) {
-            log("FALHA NO FETCH/CATCH:", error.message);
-            console.error(error); 
-            isValidationComplete = true;
+        } else {
+            log("TODAS AS CAMADAS FALHARAM. (Verifique os logs do Worker).");
             checkAndProceed('BLOCK');
         }
     }
 
+    // --- Controle de UI (Timer) ---
     function updateCountdown() {
         timeLeft -= 1;
         if (dom.countdownDisplay) dom.countdownDisplay.textContent = Math.max(timeLeft, 0);
@@ -135,7 +150,7 @@
     }
 
     function executeAction(action, link) {
-        log(`Executando Ação Final: ${action}`);
+        log(`Ação Final: ${action}`);
         if (action === 'PASS' || action === 'WARNING') {
             stopCountdown();
             if (dom.loadingText) dom.loadingText.textContent = 'Concluído';
@@ -152,6 +167,5 @@
 
     if (dom.countdownDisplay) dom.countdownDisplay.textContent = CONFIG.DURATION_SECONDS;
     countdownInterval = setInterval(updateCountdown, 1000);
-    
     setTimeout(validateUser, 100); 
 })();
