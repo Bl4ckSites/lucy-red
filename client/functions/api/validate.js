@@ -1,10 +1,28 @@
-export async function onRequestPost(context) {
+export async function onRequest(context) {
     const { request, env } = context;
+
+    // 1. TRATAMENTO DO CORS PREFLIGHT (Resolve o erro 405)
+    if (request.method === "OPTIONS") {
+        return new Response(null, {
+            headers: {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Max-Age": "86400",
+            }
+        });
+    }
+
+    // 2. GARANTE QUE SÓ ACEITA POST
+    if (request.method !== "POST") {
+        return new Response(JSON.stringify({ status: 'BLOCK', reason: 'Method Not Allowed' }), { 
+            status: 405, headers: { 'Content-Type': 'application/json' } 
+        });
+    }
 
     console.log("--- NOVA REQUISIÇÃO RECEBIDA ---");
     
     const origin = request.headers.get("Origin") || request.headers.get("Referer") || "";
-    // Permite o domínio oficial e o de testes da Cloudflare
     const isAllowedOrigin = origin.includes("tinkerfada.xyz") || origin.includes("lucy-red.pages.dev");
     
     if (!isAllowedOrigin) {
@@ -26,11 +44,8 @@ export async function onRequestPost(context) {
         let score = 100;
         let debugReasons = [];
 
-        // Regras de bloqueio crítico
         if (body.honeypotValue !== '') { score = 0; debugReasons.push("Honeypot preenchido"); }
         if (!body.isMobile) { score = 0; debugReasons.push("Não é mobile"); }
-        
-        // --- AQUI ESTÁ A FOLGA DE SEGURANÇA (Abaixado para 10ms) ---
         if (body.elapsedTime < 10) { score = 0; debugReasons.push(`Tempo < 10ms (${body.elapsedTime}ms)`); }
         
         if (threatScore > 10) { score -= 50; debugReasons.push("Threat Score > 10"); }
@@ -39,7 +54,7 @@ export async function onRequestPost(context) {
         if (fpRisk > 0) { score -= (fpRisk * 30); debugReasons.push(`Fingerprint Risk: ${fpRisk}`); }
 
         const finalScore = Math.max(0, Math.min(100, score));
-        console.log(`Score Final: ${finalScore}. Motivos de perda:`, debugReasons.join(", ") || "Nenhum");
+        console.log(`Score Final: ${finalScore}. Motivos:`, debugReasons.join(", ") || "Nenhum");
 
         let decisionStatus = 'BLOCK';
         if (finalScore >= 85) decisionStatus = 'PASS';
@@ -66,7 +81,7 @@ export async function onRequestPost(context) {
         return new Response(JSON.stringify(responseData), {
             headers: {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': isAllowedOrigin ? origin : '',
+                'Access-Control-Allow-Origin': '*',
                 'Cache-Control': 'no-store'
             }
         });
@@ -92,8 +107,6 @@ function evaluateFingerprint(data) {
     for (const bot of bots) {
         if (ua.includes(bot)) riskWeight += 1.0;
     }
-    
-    // Só bloqueia mismatch óbvio
     if (ua.includes('iphone') && data.platform?.toLowerCase().includes('win')) riskWeight += 1.0;
     if (!/^\d+x\d+$/.test(data.screenResolution)) riskWeight += 0.5;
     
