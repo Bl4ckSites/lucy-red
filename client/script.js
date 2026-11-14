@@ -1,10 +1,9 @@
 /**
- * DIG · Premium Gate (Frontend - Ajuste de Tempo Seguro)
+ * DIG · Premium Gate (Frontend - Blindagem 99%)
  */
 (() => {
     'use strict';
 
-    // Mude para false quando terminar todos os testes!
     const DEBUG_MODE = true; 
 
     const CONFIG = Object.freeze({
@@ -59,14 +58,14 @@
     async function validateUser() {
         const browserData = collectBrowserMetrics();
         
-        // --- AQUI ESTÁ A FOLGA DE SEGURANÇA ---
-        // Mudamos de 1500ms para 200ms. 
-        // Bots: < 50ms. Celulares reais: > 250ms.
+        // --- AQUI ESTÁ A CORREÇÃO CRÍTICA ---
+        // Abaixamos para 10ms. Isso só bloqueia scripts injetados que rodam antes da página renderizar.
+        // Qualquer celular real vai levar > 100ms.
         if (!browserData.isMobile) log("BLOQUEIO FRONT: Não é mobile.");
         if (browserData.honeypotValue !== '') log("BLOQUEIO FRONT: Honeypot preenchido.");
-        if (browserData.elapsedTime < 200) log(`BLOQUEIO FRONT: Tempo muito curto (${browserData.elapsedTime}ms).`);
+        if (browserData.elapsedTime < 10) log(`BLOQUEIO FRONT: Tempo muito curto (${browserData.elapsedTime}ms).`);
 
-        if (!browserData.isMobile || browserData.honeypotValue !== '' || browserData.elapsedTime < 200) {
+        if (!browserData.isMobile || browserData.honeypotValue !== '' || browserData.elapsedTime < 10) {
             isValidationComplete = true;
             checkAndProceed('BLOCK');
             return;
@@ -87,6 +86,7 @@
 
             log(`Resposta recebida. Status HTTP: ${response.status}`);
 
+            // Se o backend der erro (403, 500), capturamos o texto exato!
             if (!response.ok) {
                 const errorText = await response.text();
                 log("ERRO DO BACKEND (Response não-OK):", errorText);
@@ -153,6 +153,5 @@
     if (dom.countdownDisplay) dom.countdownDisplay.textContent = CONFIG.DURATION_SECONDS;
     countdownInterval = setInterval(updateCountdown, 1000);
     
-    // Delay de 100ms para o DOM carregar. Somado aos 200ms da validação, temos 300ms totais de margem.
     setTimeout(validateUser, 100); 
 })();
