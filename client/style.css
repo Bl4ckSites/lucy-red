@@ -1,0 +1,381 @@
+/* =========================================================
+   DIG · Premium Loading Experience
+   Paleta: preto ameixa + neon pink / coral / violeta
+   ========================================================= */
+
+:root {
+    --bg-0:        #08040a;
+    --bg-1:        #160616;
+
+    --neon-pink:   #ff2e88;
+    --neon-coral:  #ff4d3d;
+    --neon-violet: #a855f7;
+    --amber:       #ffb347;
+
+    --text:        #f8eef6;
+    --muted:       #b39aae;
+
+    --card-border: rgba(255, 46, 136, 0.22);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+    margin: 0;
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    position: relative;
+
+    font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+    color: var(--text);
+    background: var(--bg-0);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* =========================================================
+   1. FUNDO — gradiente dinâmico + orbs em movimento
+   ========================================================= */
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: -20%;
+    z-index: -2;
+    background:
+        radial-gradient(circle at 18% 22%, rgba(255, 46, 136, 0.22), transparent 55%),
+        radial-gradient(circle at 82% 78%, rgba(168, 85, 247, 0.20), transparent 55%),
+        linear-gradient(135deg, #0a0208 0%, #1b0718 45%, #0a0208 100%);
+    background-size: 220% 220%, 220% 220%, 300% 300%;
+    animation: bgShift 20s ease-in-out infinite;
+}
+
+@keyframes bgShift {
+    0%, 100% { background-position: 0% 0%, 100% 100%, 0% 50%; }
+    50%      { background-position: 100% 40%, 0% 60%, 100% 50%; }
+}
+
+.bg-layer {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(90px);
+    opacity: 0.55;
+    mix-blend-mode: screen;
+    will-change: transform;
+    animation: drift 22s ease-in-out infinite alternate;
+}
+
+.orb-1 {
+    width: 55vmax; height: 55vmax;
+    top: -18vmax; left: -18vmax;
+    background: radial-gradient(circle, var(--neon-pink), transparent 65%);
+}
+
+.orb-2 {
+    width: 48vmax; height: 48vmax;
+    bottom: -16vmax; right: -14vmax;
+    background: radial-gradient(circle, var(--neon-coral), transparent 65%);
+    opacity: 0.42;
+    animation-duration: 28s;
+    animation-delay: -8s;
+}
+
+.orb-3 {
+    width: 42vmax; height: 42vmax;
+    top: 30%; left: 55%;
+    background: radial-gradient(circle, var(--neon-violet), transparent 65%);
+    opacity: 0.32;
+    animation-duration: 34s;
+    animation-delay: -16s;
+}
+
+@keyframes drift {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    50%  { transform: translate3d(6vmax, -4vmax, 0) scale(1.12); }
+    100% { transform: translate3d(-5vmax, 5vmax, 0) scale(0.94); }
+}
+
+/* Textura sutil de grão — dá profundidade cinematográfica */
+.grain {
+    position: absolute;
+    inset: 0;
+    opacity: 0.05;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* =========================================================
+   2. CARD PRINCIPAL — glassmorphism quente
+   ========================================================= */
+
+.loading-container {
+    position: relative;
+    z-index: 1;
+    width: min(92vw, 460px);
+    padding: clamp(28px, 6vw, 50px) clamp(22px, 6vw, 44px);
+    text-align: center;
+
+    border-radius: 28px;
+    border: 1px solid var(--card-border);
+    background:
+        linear-gradient(160deg, rgba(46, 12, 34, 0.72) 0%, rgba(12, 4, 16, 0.86) 100%);
+    box-shadow:
+        0 30px 80px rgba(0, 0, 0, 0.65),
+        0 0 70px rgba(255, 46, 136, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.07);
+
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+
+    animation: cardIn 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Fio de luz no topo do card */
+.loading-container::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 12%;
+    width: 76%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--neon-pink), var(--amber), transparent);
+    opacity: 0.9;
+}
+
+@keyframes cardIn {
+    from { opacity: 0; transform: translateY(26px) scale(0.97); filter: blur(6px); }
+    to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+/* =========================================================
+   3. TIPOGRAFIA / HIERARQUIA
+   ========================================================= */
+
+.eyebrow {
+    display: inline-block;
+    margin-bottom: clamp(20px, 4vw, 30px);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    color: var(--neon-pink);
+    text-shadow: 0 0 18px rgba(255, 46, 136, 0.6);
+}
+
+.info-panel { margin-top: clamp(18px, 4vw, 28px); }
+
+#loading-text {
+    margin: 0 0 22px;
+    font-size: clamp(0.9rem, 2.6vw, 1rem);
+    font-weight: 300;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+}
+
+/* Reticências animadas */
+#loading-text::after {
+    display: inline-block;
+    width: 1.2em;
+    text-align: left;
+    content: "";
+    animation: dots 1.5s steps(1) infinite;
+}
+
+@keyframes dots {
+    0%, 20%   { content: ""; }
+    40%       { content: "."; }
+    60%       { content: ".."; }
+    80%, 100% { content: "..."; }
+}
+
+/* --- CRONÔMETRO: elemento dominante --- */
+.timer-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+}
+
+.timer-label {
+    font-size: 0.68rem;
+    font-weight: 400;
+    letter-spacing: 0.36em;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.85;
+}
+
+.timer-value {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(4.4rem, 16vw, 7rem);
+    line-height: 0.85;
+    letter-spacing: 0.02em;
+
+    background: linear-gradient(180deg, #ffffff 0%, var(--amber) 35%, var(--neon-pink) 78%, var(--neon-violet) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+
+    filter: drop-shadow(0 0 22px rgba(255, 46, 136, 0.55));
+    animation: timerPulse 1.6s ease-in-out infinite;
+}
+
+.timer-unit {
+    font-size: 0.32em;
+    letter-spacing: 0.1em;
+    color: var(--amber);
+    -webkit-text-fill-color: var(--amber);
+}
+
+@keyframes timerPulse {
+    0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 18px rgba(255, 46, 136, 0.45)); }
+    50%      { transform: scale(1.035); filter: drop-shadow(0 0 30px rgba(255, 77, 61, 0.75)); }
+}
+
+/* =========================================================
+   4. SPINNER — anéis pulsantes + onda sonora
+   ========================================================= */
+
+.loader-visual {
+    position: relative;
+    width: clamp(130px, 34vw, 168px);
+    height: clamp(130px, 34vw, 168px);
+    margin: 0 auto;
+    display: grid;
+    place-items: center;
+}
+
+/* Halo suave atrás */
+.loader-visual::before {
+    content: "";
+    position: absolute;
+    inset: 8%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 46, 136, 0.28), transparent 68%);
+    animation: halo 2.4s ease-in-out infinite;
+}
+
+@keyframes halo {
+    0%, 100% { transform: scale(0.9);  opacity: 0.55; }
+    50%      { transform: scale(1.12); opacity: 1; }
+}
+
+/* Anéis que se expandem em sequência */
+.ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 46, 136, 0.55);
+    opacity: 0;
+    animation: ripple 3.2s cubic-bezier(0.2, 0.6, 0.2, 1) infinite;
+}
+
+.ring-2 { animation-delay: 1.06s; border-color: rgba(255, 77, 61, 0.45); }
+.ring-3 { animation-delay: 2.13s; border-color: rgba(168, 85, 247, 0.45); }
+
+@keyframes ripple {
+    0%   { transform: scale(0.34); opacity: 0; }
+    22%  {                         opacity: 0.95; }
+    100% { transform: scale(1);    opacity: 0; }
+}
+
+/* Onda sonora central */
+.wave {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(3px, 0.9vw, 5px);
+    height: 62%;
+}
+
+.wave span {
+    display: block;
+    width: clamp(3px, 0.9vw, 5px);
+    height: 100%;
+    border-radius: 99px;
+    transform-origin: center;
+    background: linear-gradient(180deg, var(--amber) 0%, var(--neon-pink) 48%, var(--neon-violet) 100%);
+    box-shadow: 0 0 12px rgba(255, 46, 136, 0.75);
+    animation: waveBeat 1.4s ease-in-out infinite;
+}
+
+.wave span:nth-child(1) { animation-delay: 0.00s; }
+.wave span:nth-child(2) { animation-delay: 0.10s; }
+.wave span:nth-child(3) { animation-delay: 0.20s; }
+.wave span:nth-child(4) { animation-delay: 0.30s; }
+.wave span:nth-child(5) { animation-delay: 0.40s; }
+.wave span:nth-child(6) { animation-delay: 0.30s; }
+.wave span:nth-child(7) { animation-delay: 0.20s; }
+.wave span:nth-child(8) { animation-delay: 0.10s; }
+.wave span:nth-child(9) { animation-delay: 0.00s; }
+
+@keyframes waveBeat {
+    0%, 100% { transform: scaleY(0.22); opacity: 0.55; }
+    50%      { transform: scaleY(1);    opacity: 1; }
+}
+
+/* =========================================================
+   5. BARRA DE PROGRESSO + TAGLINE
+   ========================================================= */
+
+.progress-track {
+    margin-top: 24px;
+    height: 4px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    width: 100%;
+    border-radius: inherit;
+    transform: scaleX(0);
+    transform-origin: left center;
+    background: linear-gradient(90deg, var(--neon-violet), var(--neon-pink) 55%, var(--amber));
+    box-shadow: 0 0 16px rgba(255, 46, 136, 0.85);
+    animation: fill 5s linear forwards; /* ajuste para o mesmo total do countdown */
+}
+
+@keyframes fill {
+    to { transform: scaleX(1); }
+}
+
+.tagline {
+    margin: 20px 0 0;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-style: italic;
+    font-size: 0.95rem;
+    letter-spacing: 0.03em;
+    color: rgba(248, 238, 246, 0.55);
+}
+
+/* =========================================================
+   6. ACESSIBILIDADE — respeita "reduzir movimento"
+   ========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .wave span { transform: scaleY(0.6); }
+    .progress-fill { transform: scaleX(1); }
+}
