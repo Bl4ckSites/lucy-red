@@ -5,16 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Carregando Conteúdo Premium - DIG Site</title>
 
-    <!-- Tipografia: Bebas Neue (ousada/condensada) + Outfit (limpa) + Playfair Italic (sensual) -->
+    <!-- Tipografia: Outfit (limpa) + Bebas Neue (ousada para o timer) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@200;300;400;600&family=Playfair+Display:ital,wght@1,500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- Camada de fundo animada (orbs neon + grain) -->
+    <!-- Fundo Animado Azul -->
     <div class="bg-layer" aria-hidden="true">
         <span class="orb orb-1"></span>
         <span class="orb orb-2"></span>
@@ -23,38 +23,31 @@
     </div>
 
     <main class="loading-container">
-        <span class="eyebrow">DIG &middot; Premium Access</span>
+        
+        <!-- TELA DE CARREGAMENTO -->
+        <div id="loading-area">
+            <span class="eyebrow">DIG &middot; Acesso Restrito</span>
 
-        <!-- Spinner: anéis pulsantes + onda sonora -->
-        <div class="loader-visual" aria-hidden="true">
-            <span class="ring ring-1"></span>
-            <span class="ring ring-2"></span>
-            <span class="ring ring-3"></span>
+            <!-- Cronômetro + Anel Giratório -->
+            <div class="loader-visual">
+                <div class="spinner-ring"></div>
+                <div class="timer-circle">
+                    <span id="countdown-display">3</span>
+                </div>
+            </div>
 
-            <div class="wave">
-                <span></span><span></span><span></span><span></span><span></span>
-                <span></span><span></span><span></span><span></span>
+            <div class="info-panel">
+                <p id="loading-text">Verificando segurança</p>
             </div>
         </div>
 
-        <div class="info-panel">
-            <p id="loading-text">Conectando ao conteúdo exclusivo</p>
-
-            <!-- Foco principal da hierarquia -->
-            <div class="timer-display">
-                <span class="timer-label">Tempo restante</span>
-                <span class="timer-value">
-                    <span id="countdown">05</span><span class="timer-unit">s</span>
-                </span>
-            </div>
-
-            <!-- Barra de progresso (sincronizada com 5s do script.js) -->
-            <div class="progress-track">
-                <div class="progress-fill"></div>
-            </div>
-
-            <p class="tagline">O melhor está por vir.</p>
+        <!-- TELA DE ACESSO LIBERADO (Oculta inicialmente) -->
+        <div id="accessible-content" class="hidden">
+            <div class="success-icon">✓</div>
+            <p id="hint-text">Verificação concluída. Você já pode acessar.</p>
+            <a href="#" id="access-button" class="access-button">Entrar no Telegram</a>
         </div>
+
     </main>
 
     <script src="script.js"></script>
