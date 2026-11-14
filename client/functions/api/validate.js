@@ -1,165 +1,101 @@
-/**
- * DIG · Premium Gate API (Cloudflare Pages Function)
- * Rota: /api/validate
- * 
- * Segurança: Mobile-Only, Honeypot, Time-Gate, Origin Check e CF Threat Score.
- */
-
-const BOT_PATTERN_DB = {
-    'headless': 1.0,
-    'puppeteer': 1.0,
-    'selenium': 1.0,
-    'playwright': 1.0,
-    'python': 1.0,
-    'curl': 1.0,
-    'postman': 1.0,
-    'axios': 1.0,
-    'node-fetch': 1.0
-};
-
 export async function onRequestPost(context) {
     const { request, env } = context;
 
-    // ==================================================
-    // CAMADA 1: PROTEÇÕES DE BORDA (Antes de ler o JSON)
-    // ==================================================
-    
-    // 1. Origem Restrita (Aceita apenas requisições do seu domínio ou preview)
+    // Logs visíveis no painel da Cloudflare (Real-time Logs)
+    console.log("--- NOVA REQUISIÇÃO RECEBIDA ---");
+    console.log("Headers Origin:", request.headers.get("Origin"));
+    console.log("Headers Referer:", request.headers.get("Referer"));
+    console.log("IP do Cliente:", request.headers.get('CF-Connecting-IP'));
+
     const origin = request.headers.get("Origin") || request.headers.get("Referer") || "";
     const isAllowedOrigin = origin.includes("tinkerfada.xyz") || origin.includes("lucy-red.pages.dev");
     
     if (!isAllowedOrigin) {
-        return blockResponse('Invalid Origin');
+        console.error(`BLOQUEIO WORKER: Origin inválido -> "${origin}"`);
+        return blockResponse(`Invalid Origin: ${origin}`);
     }
 
-    // 2. Content-Type Obrigatório
     if (!request.headers.get('Content-Type')?.includes('application/json')) {
+        console.error("BLOQUEIO WORKER: Content-Type não é JSON.");
         return blockResponse('Invalid Content-Type');
-    }
-
-    // 3. Limite de Tamanho do Payload (Evita ataques de sobrecarga)
-    const contentLength = request.headers.get('Content-Length');
-    if (contentLength && parseInt(contentLength) > 2048) {
-        return blockResponse('Payload Too Large');
     }
 
     try {
         const body = await request.json();
+        console.log("Payload recebido do Front:", body);
+
         const ipAddress = request.headers.get('CF-Connecting-IP') || 'Unknown';
-        
-        // 4. Cloudflare Threat Score (Inteligência de IP da CF)
         const threatScore = request.cf?.threatScore || 0;
+        console.log(`Threat Score do IP: ${threatScore}`);
 
-        // ==================================================
-        // CAMADA 2: FINGERPRINT & SCORE
-        // ==================================================
         let score = 100;
+        let debugReasons = [];
 
-        // --- REGRAS DE BLOQUEIO CRÍTICO (Zeram o Score Instantaneamente) ---
+        if (body.honeypotValue !== '') { score = 0; debugReasons.push("Honeypot"); }
+        if (!body.isMobile) { score = 0; debugReasons.push("Não é mobile"); }
+        if (body.elapsedTime < 1500) { score = 0; debugReasons.push("Tempo < 1.5s"); }
+        if (threatScore > 10) { score -= 50; debugReasons.push("Threat Score > 10"); }
         
-        // Se preencheu o Honeypot -> Bot (humanos não veem o campo)
-        if (body.honeypotValue !== '') score = 0;
-        
-        // Se não é mobile -> Bloqueio (Site estritamente Mobile-Only)
-        if (!body.isMobile) score = 0;
-        
-        // Se o tempo na página foi muito curto (< 1.5s) -> Bot rápido
-        if (body.elapsedTime < 1500) score = 0;
-
-        // IP em Blacklist (Locais ou inválidos)
-        if (isBlacklistedIP(ipAddress)) score = 0;
-
-        // Threat Score do Cloudflare > 10 já tira 50 pontos
-        if (threatScore > 10) score -= 50;
-        
-        // --- ANÁLISE DE PADRÕES E MISMATCH ---
-        score -= (evaluateFingerprint(body) * 30);
+        const fpRisk = evaluateFingerprint(body);
+        if (fpRisk > 0) { score -= (fpRisk * 30); debugReasons.push(`Fingerprint Risk: ${fpRisk}`); }
 
         const finalScore = Math.max(0, Math.min(100, score));
+        console.log(`Score Final Calculado: ${finalScore}. Motivos de perda:`, debugReasons.join(", ") || "Nenhum");
 
-        // ==================================================
-        // CAMADA 3: DECISÃO E ENTREGA DO LINK SEGURO
-        // ==================================================
-        let decisionStatus;
-        if (finalScore >= 85) {
-            decisionStatus = 'PASS';
-        } else if (finalScore >= 50) {
-            decisionStatus = 'WARNING';
-        } else {
-            decisionStatus = 'BLOCK';
-        }
+        let decisionStatus = 'BLOCK';
+        if (finalScore >= 85) decisionStatus = 'PASS';
+        else if (finalScore >= 50) decisionStatus = 'WARNING';
 
-        // Pega o link das Variáveis de Ambiente (O link nunca fica exposto no código)
         const secretLink = env.TELEGRAM_LINK;
-
         if (!secretLink) {
-            console.error("ERRO CRÍTICO: Variável de ambiente TELEGRAM_LINK não configurada!");
-            return blockResponse('Server Configuration Error');
+            console.error("ERRO CRÍTICO: Variável TELEGRAM_LINK ausente.");
+            return blockResponse('Server Configuration Error: Missing TELEGRAM_LINK env');
         }
 
-        // Monta a resposta
         const responseData = { 
             status: decisionStatus, 
             score: finalScore.toFixed(2),
-            reason: decisionStatus === 'BLOCK' ? 'High Risk' : 'Validation OK'
+            reason: decisionStatus === 'BLOCK' ? `Score baixo (${finalScore}). Motivos: ${debugReasons.join(" | ")}` : 'Validation OK'
         };
 
-        // SÓ ENTREGA O LINK SE FOR PASS OU WARNING (Nunca no BLOCK)
         if (decisionStatus === 'PASS' || decisionStatus === 'WARNING') {
             responseData.link = secretLink;
         }
 
-        // Retorno seguro com cabeçalhos restritos
+        console.log("Resposta enviada para o Front:", responseData);
+
         return new Response(JSON.stringify(responseData), {
             headers: {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': isAllowedOrigin ? origin : '',
-                'Cache-Control': 'no-store, no-cache, must-revalidate',
-                'X-Content-Type-Options': 'nosniff'
+                'Cache-Control': 'no-store'
             }
         });
 
     } catch (e) {
-        console.error("Erro no processamento:", e);
-        return blockResponse('Internal Server Error');
+        console.error("Erro Crítico no Worker:", e);
+        return blockResponse(`Internal Server Error: ${e.message}`);
     }
 }
 
-// ==================================================
-// FUNÇÕES DE APOIO
-// ==================================================
 function blockResponse(reason) {
-    return new Response(JSON.stringify({ status: 'BLOCK', reason }), { 
+    // Retorna o motivo detalhado para o frontend poder logar no celular!
+    return new Response(JSON.stringify({ status: 'BLOCK', reason: reason }), { 
         status: 403, 
         headers: { 'Content-Type': 'application/json' } 
     });
 }
 
-function isBlacklistedIP(ip) {
-    if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip === 'Unknown') return true; 
-    return false;
-}
-
 function evaluateFingerprint(data) {
     let riskWeight = 0;
     const ua = data.userAgent ? data.userAgent.toLowerCase() : '';
-
-    // 1. Ferramentas de Automação Conhecidas
-    for (const [botPattern, weight] of Object.entries(BOT_PATTERN_DB)) {
-        if (ua.includes(botPattern)) {
-            riskWeight += weight;
-        }
+    const bots = ['headless','puppeteer','selenium','playwright','python','curl','postman','axios','node-fetch'];
+    
+    for (const bot of bots) {
+        if (ua.includes(bot)) riskWeight += 1.0;
     }
-
-    // 2. Mismatch de Plataforma (Diz que é iPhone mas plataforma é Win32)
-    if (ua.includes('iphone') && data.platform?.toLowerCase().includes('win')) {
-        riskWeight += 1.0;
-    }
-
-    // 3. Validação de Resolução Básica (Se não for formato WxH)
-    if (!/^\d+x\d+$/.test(data.screenResolution)) {
-        riskWeight += 0.5;
-    }
-
+    if (ua.includes('iphone') && data.platform?.toLowerCase().includes('win')) riskWeight += 1.0;
+    if (!/^\d+x\d+$/.test(data.screenResolution)) riskWeight += 0.5;
+    
     return riskWeight;
 }
