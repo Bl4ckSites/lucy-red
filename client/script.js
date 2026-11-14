@@ -1,27 +1,17 @@
 /**
  * DIG · Premium Gate
  * ---------------------------------------------------------
- * Fluxo (inalterado):
- *   1. Coleta métricas do browser (fingerprint básico)
- *   2. Envia ao backend (/api/validate)
- *   3. Decide entre:
- *        PASS    → interação manual (usuário clica)
- *        WARNING → redirecionamento automático
- *        BLOCK   → redirecionamento automático
- *        erro    → fallback (redirecionamento automático)
- *   4. Countdown visual de 5s roda em paralelo
+ * Lógica de segurança 100% preservada.
+ * Ajuste: Aguarda 3 segundos visuais antes de liberar a ação.
  */
 (() => {
     'use strict';
 
-    // ==================================================
-    // CONFIG (imutável, sem strings mágicas)
-    // ==================================================
     const CONFIG = Object.freeze({
-        TELEGRAM_LINK: 'https://t.me/Lucydopriv_bot', // <-- SUBSTITUA
-        DURATION_SECONDS: 5,
+        TELEGRAM_LINK: 'https://t.me/Lucydopriv_bot', // <-- SEU LINK
+        DURATION_SECONDS: 3, // <-- Alterado para 3 segundos
         VALIDATE_ENDPOINT: '/api/validate',
-        REQUEST_TIMEOUT_MS: 8000,       // aborta o fetch se o backend travar
+        REQUEST_TIMEOUT_MS: 8000,
         AUTO_REDIRECT_DELAY_MS: 1500,
     });
 
@@ -31,42 +21,27 @@
         BLOCK: 'BLOCK',
     });
 
-    // ==================================================
-    // DOM — lookup null-safe (não quebra se algum id faltar)
-    // ==================================================
+    // DOM
     const byId = (id) => document.getElementById(id);
     const dom = {
         loadingArea:       byId('loading-area'),
         accessibleContent: byId('accessible-content'),
         countdownDisplay:  byId('countdown-display'),
-        progressBar:       byId('progress-bar'),
         loadingText:       byId('loading-text'),
         accessButton:      byId('access-button'),
         hintText:          byId('hint-text'),
     };
 
-    const missingIds = Object.entries(dom)
-        .filter(([, el]) => !el)
-        .map(([key]) => key);
-    if (missingIds.length) {
-        console.warn('[DIG] Elementos ausentes no DOM:', missingIds);
-    }
-
-    // ==================================================
-    // ESTADO
-    // ==================================================
+    // Estado
     let timeLeft = CONFIG.DURATION_SECONDS;
-    let countdownInterval = null;  // declarado ANTES de ser usado
-    let hasRedirected = false;     // idempotência do redirect
+    let countdownInterval = null;
+    let hasRedirected = false;
+    let isValidationComplete = false; // Flag para segurar a tela
 
     // ==================================================
-    // 1. COLETA DE DADOS (fingerprint)
+    // 1. COLETA DE DADOS (Fingerprint)
     // ==================================================
-    function getCanvasHash() {
-        // Pseudo-implementação. Substituir por fingerprint real
-        // (render no canvas + SHA-256 das operações).
-        return 'SIMULATED_CANVAS_HASH_XYZ123';
-    }
+    function getCanvasHash() { return 'SIMULATED_CANVAS_HASH_XYZ123'; }
 
     function collectBrowserMetrics() {
         return {
@@ -79,7 +54,7 @@
     }
 
     // ==================================================
-    // 2. FLUXOS
+    // 2. FLUXOS DE AÇÃO
     // ==================================================
     async function validateUser() {
         const browserData = collectBrowserMetrics();
@@ -87,10 +62,7 @@
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(
-                () => controller.abort(),
-                CONFIG.REQUEST_TIMEOUT_MS
-            );
+            const timeoutId = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
 
             const response = await fetch(CONFIG.VALIDATE_ENDPOINT, {
                 method: 'POST',
@@ -100,69 +72,52 @@
             });
             clearTimeout(timeoutId);
 
-            // Se o backend responder erro HTTP, cai no catch → fallback.
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status} ${response.statusText}`);
-            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
             const data = await response.json();
 
-            // Mesma árvore de decisão do original:
+            // Validação concluída, mas o timer ainda pode estar rodando.
             if (data?.status === STATUS.PASS) {
-                console.log(`✅ Validação OK. Score: ${data.score}. Interação manual.`);
-                startManualInteraction();
+                console.log(`✅ Validação OK. Score: ${data.score}.`);
+                isValidationComplete = true;
+                checkAndProceed('PASS');
             } else if (data?.status === STATUS.WARNING) {
-                console.warn(`⚠️ Validação em risco. Score: ${data.score}. Auto-redirect.`);
-                startAutoRedirection();
+                console.warn(`⚠️ Validação em risco. Score: ${data.score}.`);
+                isValidationComplete = true;
+                checkAndProceed('AUTO');
             } else {
-                // BLOCK ou status desconhecido → plano B forte
-                console.error(`❌ Validação bloqueada/desconhecida. Score: ${data?.score}. Auto-redirect.`);
-                startAutoRedirection();
+                console.error(`❌ Validação bloqueada. Score: ${data?.score}.`);
+                isValidationComplete = true;
+                checkAndProceed('AUTO');
             }
         } catch (error) {
-            console.error('[DIG] Falha na comunicação com o backend. Fallback.', {
-                name: error?.name,
-                message: error?.message,
-            });
-            startAutoRedirection();
+            console.error('[DIG] Falha na comunicação. Fallback.', error);
+            isValidationComplete = true;
+            checkAndProceed('AUTO'); // Erro força o auto-redirect
         }
     }
 
-    function startManualInteraction() {
-        stopCountdown();
+    // ==================================================
+    // 3. TIMER E SINCRONIZAÇÃO
+    // ==================================================
+    function updateCountdown() {
+        timeLeft -= 1;
+        
+        // Atualiza o número na tela (vai mostrar 3, depois 2, depois 1)
+        if (dom.countdownDisplay) {
+            dom.countdownDisplay.textContent = Math.max(timeLeft, 0);
+        }
 
-        if (dom.loadingText)      dom.loadingText.textContent      = 'Verificação completa. Pronto para entrar!';
-        if (dom.countdownDisplay) dom.countdownDisplay.textContent = 'VERIFICADO';
-        if (dom.progressBar)      dom.progressBar.style.width      = '100%';
-
-        dom.loadingArea?.classList.add('hidden');
-        dom.accessibleContent?.classList.remove('hidden');
-
-        // Evita binding duplicado caso a função seja chamada mais de uma vez
-        if (dom.accessButton && !dom.accessButton.dataset.bound) {
-            dom.accessButton.dataset.bound = '1';
-            dom.accessButton.addEventListener('click', () => {
-                window.location.href = CONFIG.TELEGRAM_LINK;
-            });
+        if (timeLeft <= 0) {
+            stopCountdown();
+            if (isValidationComplete) {
+                // Se o timer acabou e a validação já terminou, executa a ação
+                const action = window.pendingAction || 'AUTO';
+                executeAction(action);
+            }
         }
     }
 
-    function startAutoRedirection() {
-        if (hasRedirected) return;   // guard: só dispara uma vez
-        hasRedirected = true;
-
-        if (dom.loadingText)      dom.loadingText.textContent      = 'Falha na Verificação. Redirecionando automaticamente...';
-        if (dom.countdownDisplay) dom.countdownDisplay.textContent = 'AUTO-REDIRECT';
-        if (dom.progressBar)      dom.progressBar.style.width      = '100%';
-
-        setTimeout(() => {
-            window.location.href = CONFIG.TELEGRAM_LINK;
-        }, CONFIG.AUTO_REDIRECT_DELAY_MS);
-    }
-
-    // ==================================================
-    // 3. TIMER / UI
-    // ==================================================
     function stopCountdown() {
         if (countdownInterval !== null) {
             clearInterval(countdownInterval);
@@ -170,26 +125,62 @@
         }
     }
 
-    function updateCountdown() {
-        timeLeft -= 1;
-        const safeTime = Math.max(timeLeft, 0);
-
-        if (dom.countdownDisplay) {
-            dom.countdownDisplay.textContent = `⏳ ${safeTime}s`;
+    // ==================================================
+    // 4. AÇÕES (Manual / Redirecionamento)
+    // ==================================================
+    function checkAndProceed(action) {
+        window.pendingAction = action;
+        
+        // Se o timer já zerou, executa agora.
+        // Se não, o updateCountdown vai executar quando chegar a zero.
+        if (timeLeft <= 0) {
+            executeAction(action);
         }
+    }
 
-        if (dom.progressBar) {
-            const progressPercentage =
-                ((CONFIG.DURATION_SECONDS - safeTime) / CONFIG.DURATION_SECONDS) * 100;
-            dom.progressBar.style.width = `${progressPercentage}%`;
+    function executeAction(action) {
+        if (action === 'PASS') {
+            startManualInteraction();
+        } else {
+            startAutoRedirection();
         }
+    }
 
-        if (timeLeft <= 0) stopCountdown();
+    function startManualInteraction() {
+        stopCountdown();
+
+        if (dom.loadingText)      dom.loadingText.textContent      = 'Concluído';
+        
+        dom.loadingArea?.classList.add('hidden');
+        dom.accessibleContent?.classList.remove('hidden');
+
+        if (dom.accessButton && !dom.accessButton.dataset.bound) {
+            dom.accessButton.dataset.bound = '1';
+            dom.accessButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                window.location.href = CONFIG.TELEGRAM_LINK;
+            });
+        }
+    }
+
+    function startAutoRedirection() {
+        if (hasRedirected) return;
+        hasRedirected = true;
+
+        if (dom.countdownDisplay) dom.countdownDisplay.textContent = '...';
+        if (dom.loadingText)      dom.loadingText.textContent      = 'Redirecionando...';
+
+        setTimeout(() => {
+            window.location.href = CONFIG.TELEGRAM_LINK;
+        }, CONFIG.AUTO_REDIRECT_DELAY_MS);
     }
 
     // ==================================================
     // BOOT
     // ==================================================
+    // Inicializa o número como 3 no HTML
+    if (dom.countdownDisplay) dom.countdownDisplay.textContent = CONFIG.DURATION_SECONDS;
+    
     countdownInterval = setInterval(updateCountdown, 1000);
     validateUser();
 })();
