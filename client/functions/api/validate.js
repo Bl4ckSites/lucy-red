@@ -1,13 +1,10 @@
-/**
- * DIG · Premium Gate API (Cloudflare Pages Function)
- * Rota: /api/validate
- */
 export async function onRequestPost(context) {
     const { request, env } = context;
 
     console.log("--- NOVA REQUISIÇÃO RECEBIDA ---");
     
     const origin = request.headers.get("Origin") || request.headers.get("Referer") || "";
+    // Permite o domínio oficial e o de testes da Cloudflare
     const isAllowedOrigin = origin.includes("tinkerfada.xyz") || origin.includes("lucy-red.pages.dev");
     
     if (!isAllowedOrigin) {
@@ -29,11 +26,12 @@ export async function onRequestPost(context) {
         let score = 100;
         let debugReasons = [];
 
-        if (body.honeypotValue !== '') { score = 0; debugReasons.push("Honeypot"); }
+        // Regras de bloqueio crítico
+        if (body.honeypotValue !== '') { score = 0; debugReasons.push("Honeypot preenchido"); }
         if (!body.isMobile) { score = 0; debugReasons.push("Não é mobile"); }
         
-        // --- AQUI ESTÁ A FOLGA DE SEGURANÇA (Mudou de 1500 para 200) ---
-        if (body.elapsedTime < 200) { score = 0; debugReasons.push(`Tempo < 200ms (${body.elapsedTime}ms)`); }
+        // --- AQUI ESTÁ A FOLGA DE SEGURANÇA (Abaixado para 10ms) ---
+        if (body.elapsedTime < 10) { score = 0; debugReasons.push(`Tempo < 10ms (${body.elapsedTime}ms)`); }
         
         if (threatScore > 10) { score -= 50; debugReasons.push("Threat Score > 10"); }
         
@@ -94,6 +92,8 @@ function evaluateFingerprint(data) {
     for (const bot of bots) {
         if (ua.includes(bot)) riskWeight += 1.0;
     }
+    
+    // Só bloqueia mismatch óbvio
     if (ua.includes('iphone') && data.platform?.toLowerCase().includes('win')) riskWeight += 1.0;
     if (!/^\d+x\d+$/.test(data.screenResolution)) riskWeight += 0.5;
     
