@@ -1,12 +1,12 @@
+/**
+ * DIG · Premium Gate API (Cloudflare Pages Function)
+ * Rota: /api/validate
+ */
 export async function onRequestPost(context) {
     const { request, env } = context;
 
-    // Logs visíveis no painel da Cloudflare (Real-time Logs)
     console.log("--- NOVA REQUISIÇÃO RECEBIDA ---");
-    console.log("Headers Origin:", request.headers.get("Origin"));
-    console.log("Headers Referer:", request.headers.get("Referer"));
-    console.log("IP do Cliente:", request.headers.get('CF-Connecting-IP'));
-
+    
     const origin = request.headers.get("Origin") || request.headers.get("Referer") || "";
     const isAllowedOrigin = origin.includes("tinkerfada.xyz") || origin.includes("lucy-red.pages.dev");
     
@@ -16,7 +16,6 @@ export async function onRequestPost(context) {
     }
 
     if (!request.headers.get('Content-Type')?.includes('application/json')) {
-        console.error("BLOQUEIO WORKER: Content-Type não é JSON.");
         return blockResponse('Invalid Content-Type');
     }
 
@@ -26,21 +25,23 @@ export async function onRequestPost(context) {
 
         const ipAddress = request.headers.get('CF-Connecting-IP') || 'Unknown';
         const threatScore = request.cf?.threatScore || 0;
-        console.log(`Threat Score do IP: ${threatScore}`);
 
         let score = 100;
         let debugReasons = [];
 
         if (body.honeypotValue !== '') { score = 0; debugReasons.push("Honeypot"); }
         if (!body.isMobile) { score = 0; debugReasons.push("Não é mobile"); }
-        if (body.elapsedTime < 1500) { score = 0; debugReasons.push("Tempo < 1.5s"); }
+        
+        // --- AQUI ESTÁ A FOLGA DE SEGURANÇA (Mudou de 1500 para 200) ---
+        if (body.elapsedTime < 200) { score = 0; debugReasons.push(`Tempo < 200ms (${body.elapsedTime}ms)`); }
+        
         if (threatScore > 10) { score -= 50; debugReasons.push("Threat Score > 10"); }
         
         const fpRisk = evaluateFingerprint(body);
         if (fpRisk > 0) { score -= (fpRisk * 30); debugReasons.push(`Fingerprint Risk: ${fpRisk}`); }
 
         const finalScore = Math.max(0, Math.min(100, score));
-        console.log(`Score Final Calculado: ${finalScore}. Motivos de perda:`, debugReasons.join(", ") || "Nenhum");
+        console.log(`Score Final: ${finalScore}. Motivos de perda:`, debugReasons.join(", ") || "Nenhum");
 
         let decisionStatus = 'BLOCK';
         if (finalScore >= 85) decisionStatus = 'PASS';
@@ -62,7 +63,7 @@ export async function onRequestPost(context) {
             responseData.link = secretLink;
         }
 
-        console.log("Resposta enviada para o Front:", responseData);
+        console.log("Resposta enviada:", responseData);
 
         return new Response(JSON.stringify(responseData), {
             headers: {
@@ -79,7 +80,6 @@ export async function onRequestPost(context) {
 }
 
 function blockResponse(reason) {
-    // Retorna o motivo detalhado para o frontend poder logar no celular!
     return new Response(JSON.stringify({ status: 'BLOCK', reason: reason }), { 
         status: 403, 
         headers: { 'Content-Type': 'application/json' } 
