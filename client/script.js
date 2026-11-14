@@ -10,7 +10,7 @@
         DURATION_SECONDS: 3,
         VALIDATE_ENDPOINT: '/api/validate',
         REQUEST_TIMEOUT_MS: 8000,
-        AUTO_REDIRECT_DELAY_MS: 1500,
+        AUTO_REDIRECT_DELAY_MS: 300,
     });
 
     const STATUS = Object.freeze({ PASS: 'PASS', WARNING: 'WARNING', BLOCK: 'BLOCK' });
