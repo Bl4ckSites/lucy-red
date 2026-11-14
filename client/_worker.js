@@ -2,12 +2,8 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // ==================================================
-    // ROTA DA API (Validação)
-    // ==================================================
     if (url.pathname === '/api/validate') {
       
-      // 1. Tratamento de CORS (Preflight OPTIONS)
       if (request.method === 'OPTIONS') {
         return new Response(null, {
           headers: {
@@ -18,7 +14,6 @@ export default {
         });
       }
 
-      // 2. Garante que só aceita POST
       if (request.method !== 'POST') {
         return new Response(JSON.stringify({ status: 'BLOCK', reason: 'Method Not Allowed' }), { 
           status: 405, 
@@ -27,95 +22,65 @@ export default {
       }
 
       try {
-        // 3. Leitura do Payload (O Segredo das 3 Camadas)
-        // Lemos o body como TEXTO puro. Isso funciona para 'application/json', 'text/plain' e 'urlencoded'.
         const rawBody = await request.text();
         let body;
-
-        try {
-          // Tenta converter o texto para JSON. Como o script.js usa JSON.stringify em todas as camadas, isso sempre vai funcionar.
-          body = JSON.parse(rawBody);
-        } catch (parseError) {
-          console.error("BLOQUEIO WORKER: Payload não é um JSON válido.", rawBody);
+        try { body = JSON.parse(rawBody); } catch (parseError) {
           return blockResponse('Invalid JSON Payload');
         }
 
-        console.log("--- NOVA REQUISIÇÃO RECEBIDA ---");
-        console.log("Payload processado:", body);
-
-        // ==================================================
-        // CAMADA DE SEGURANÇA E SCORE
-        // ==================================================
         const ipAddress = request.headers.get('CF-Connecting-IP') || 'Unknown';
         const threatScore = request.cf?.threatScore || 0;
 
         let score = 100;
         let debugReasons = [];
 
-        // 3.1 Regras de Bloqueio Crítico
-        if (body.honeypotValue !== '') { 
+        // Regras de bloqueio
+        if (body.honeypotValue && body.honeypotValue.trim() !== '') { 
             score = 0; 
-            debugReasons.push("Honeypot preenchido"); 
+            debugReasons.push("Honeypot"); 
         }
         if (!body.isMobile) { 
             score = 0; 
             debugReasons.push("Não é Mobile"); 
         }
-        if (body.elapsedTime < 10) { 
-            score = 0; 
-            debugReasons.push(`Tempo muito curto (${body.elapsedTime}ms)`); 
-        }
         
-        // 3.2 Análise de Risco Cloudflare
         if (threatScore > 10) { 
             score -= 50; 
-            debugReasons.push(`Cloudflare Threat Score Alto (${threatScore})`); 
+            debugReasons.push("Threat Score"); 
         }
         
-        // 3.3 Análise de Fingerprint (User Agent)
         const ua = body.userAgent ? body.userAgent.toLowerCase() : '';
         const bots = ['headless','puppeteer','selenium','playwright','python','curl','postman','axios','node-fetch'];
         for (const bot of bots) {
             if (ua.includes(bot)) { 
                 score -= 30; 
-                debugReasons.push(`Assinatura de Bot: ${bot}`); 
+                debugReasons.push(`UA Bot: ${bot}`); 
             }
         }
 
-        // 3.4 Validação de Resolução
-        if (!/^\d+x\d+$/.test(body.screenResolution)) {
-            score -= 10;
-            debugReasons.push("Resolução Inválida");
-        }
-
         const finalScore = Math.max(0, Math.min(100, score));
-        console.log(`Score Final: ${finalScore}. Motivos de perda:`, debugReasons.join(", ") || "Nenhum");
-        
-        // 4. Decisão
-        let decisionStatus = 'BLOCK';
-        if (finalScore >= 85) decisionStatus = 'PASS';
-        else if (finalScore >= 50) decisionStatus = 'WARNING';
+        let decisionStatus = finalScore >= 85 ? 'PASS' : (finalScore >= 50 ? 'WARNING' : 'BLOCK');
 
-        // 5. Pega a Variável de Ambiente (O Link Secreto)
-        const secretLink = env.TELEGRAM_LINK;
+        // ==================================================
+        // A MÁGICA DO LINK ACONTECE AQUI
+        // ==================================================
+        const rawLink = env.TELEGRAM_LINK || '';
+        // Remove QUALQUER espaço, quebra de linha ou caractere invisível que o Cloudflare inseriu
+        const secretLink = rawLink.trim().replace(/\s/g, ''); 
+        
         if (!secretLink) {
-            console.error("ERRO CRÍTICO: Variável TELEGRAM_LINK não configurada!");
-            return blockResponse('Server Configuration Error');
+            return blockResponse('Missing TELEGRAM_LINK env');
         }
 
-        // 6. Monta a Resposta
         const responseData = { 
             status: decisionStatus, 
             score: finalScore.toFixed(2),
-            reason: decisionStatus === 'BLOCK' ? `Acesso Negado (Score: ${finalScore}). Motivos: ${debugReasons.join(" | ")}` : 'Validation OK'
+            reason: decisionStatus === 'BLOCK' ? `Score baixo (${finalScore}). Motivos: ${debugReasons.join(" | ")}` : 'Validation OK'
         };
 
-        // SÓ ENTREGA O LINK SE FOR PASS OU WARNING (Nunca no BLOCK)
         if (decisionStatus === 'PASS' || decisionStatus === 'WARNING') {
-            responseData.link = secretLink;
+            responseData.link = secretLink; // Link 100% limpo
         }
-
-        console.log("Resposta enviada:", responseData);
 
         return new Response(JSON.stringify(responseData), {
           headers: { 
@@ -126,28 +91,18 @@ export default {
         });
 
       } catch (e) {
-        console.error("Erro Crítico no Worker:", e);
-        return blockResponse(`Internal Server Error: ${e.message}`);
+        return blockResponse(`Internal Error: ${e.message}`);
       }
     }
 
-    // ==================================================
-    // QUALQUER OUTRA ROTA (Serve o HTML, CSS, JS normais)
-    // ==================================================
-    // Se não for a rota da API, entrega os arquivos da pasta 'client'
+    // Serve o site normal
     return env.ASSETS.fetch(request);
   }
 };
 
-/**
- * Função auxiliar para padronizar respostas de erro/bloqueio
- */
 function blockResponse(reason) {
   return new Response(JSON.stringify({ status: 'BLOCK', reason: reason }), { 
     status: 403, 
-    headers: { 
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-    } 
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } 
   });
 }
