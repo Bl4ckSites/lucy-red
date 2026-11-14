@@ -12,10 +12,10 @@
 
     <link rel="stylesheet" href="style.css">
 </head>
-        <!-- DEBUG MOBILE -->
-    <script src="//cdn.jsdelivr.net/npm/eruda"></script>
-    <script>eruda.init();</script>
 <body>
+
+    <!-- HONEYPOT ANTI-BOT (Oculto e protegido contra preenchimento automático) -->
+    <input type="text" id="honeypot" name="website" style="display:none !important" tabindex="-1" autocomplete="new-password" aria-hidden="true">
 
     <!-- Fundo Animado Azul -->
     <div class="bg-layer" aria-hidden="true">
@@ -52,6 +52,10 @@
         </div>
 
     </main>
+
+    <!-- DEBUG MOBILE (Eruda) - Apague estas 2 linhas quando terminar os testes -->
+    <script src="//cdn.jsdelivr.net/npm/eruda"></script>
+    <script>eruda.init();</script>
 
     <script src="script.js"></script>
 </body>
